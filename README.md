@@ -222,3 +222,4 @@ See [`docs/TEMPLATE.md`](docs/TEMPLATE.md) for:
 - Bundled `svd/max78000.svd` — core and peripheral identification
 - Zephyr ADI MAX32 DTS data — flash base address and SRAM bank layout
 - [MAX78000 product page](https://www.analog.com/en/products/max78000.html)
+
