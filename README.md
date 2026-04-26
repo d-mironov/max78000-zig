@@ -1,50 +1,98 @@
 # max78000-zig
 
-Self-contained MicroZig chip definition package for the Analog Devices / Maxim MAX78000.
+> Self-contained [MicroZig](https://github.com/ZigEmbeddedGroup/microzig) chip-support package for the **Analog Devices MAX78000** — an ultra-low-power AI microcontroller with a Cortex-M4F application core.
 
-## What it provides
+![Zig](https://img.shields.io/badge/Zig-0.15.2-f7a41d?logo=zig&logoColor=white)
+![MicroZig](https://img.shields.io/badge/MicroZig-0.15.1-5c6bc0?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PC9zdmc+)
+![Platform](https://img.shields.io/badge/CPU-Cortex--M4F-blue?logo=arm&logoColor=white)
+![Status](https://img.shields.io/badge/HAL-in%20progress-yellow)
 
-- `chips.max78000`: chip-level `microzig.Target` for the Cortex-M4F core
-- `boards.max78000evkit`: board-level target derived from `chips.max78000`
-- `boards.max78000fthr`: board-level target derived from `chips.max78000`
-- register generation from the bundled `svd/max78000.svd`
-- default linker script generation for internal flash + SRAM
-- a minimal standalone firmware example built by `zig build`
+---
+
+## Table of Contents
+
+- [What's included](#whats-included)
+- [Target summary](#target-summary)
+- [Quick start](#quick-start)
+- [Using as a dependency](#using-as-a-dependency)
+- [Package API](#package-api)
+- [HAL modules](#hal-modules)
+- [SVD preprocessing](#svd-preprocessing)
+- [Repository layout](#repository-layout)
+- [Template usage](#template-usage)
+- [HAL development notes](#hal-development-notes)
+- [Memory map sources](#memory-map-sources)
+
+---
+
+## What's included
+
+| Export | Description |
+|---|---|
+| `chips.max78000` | Chip-level `microzig.Target` for the Cortex-M4F core |
+| `boards.max78000evkit` | Board-level target for the [MAX78000EVKIT](https://www.analog.com/en/design-center/evaluation-hardware-and-software/evaluation-boards-kits/max78000evkit.html) |
+| `boards.max78000fthr` | Board-level target for the [MAX78000FTHR](https://www.analog.com/en/design-center/evaluation-hardware-and-software/evaluation-boards-kits/max78000fthr.html) |
+| Register definitions | Generated at build time from `svd/max78000.svd` via a custom expander |
+| Linker script | Auto-generated for internal flash + SRAM layout |
+| Example firmware | `examples/empty.zig` — a minimal buildable starting point |
+
+---
 
 ## Target summary
 
-- CPU: ARM Cortex-M4F
-- ABI: `eabihf`
-- Flash: `0x10000000`, 512 KiB
-- SRAM: `0x20000000`, 128 KiB
+| Property | Value |
+|---|---|
+| CPU | ARM Cortex-M4F |
+| ABI | `eabihf` |
+| Flash base | `0x10000000` |
+| Flash size | 512 KiB |
+| SRAM base | `0x20000000` |
+| SRAM size | 128 KiB |
 
-The SRAM is exposed as a single contiguous 128 KiB region for MicroZig, even though vendor DTS data describes it as four contiguous banks.
+> **Note:** The vendor DTS describes SRAM as four contiguous banks (32 + 32 + 48 + 16 KiB). This package exposes them as a single 128 KiB region for MicroZig.
 
-## SVD preprocessing
+---
 
-The bundled `svd/max78000.svd` is kept as the raw vendor SVD.
+## Quick start
 
-During the build, this package runs `tools/expand_max78000_svd.zig` to generate an expanded SVD in the build cache and feeds that generated file to MicroZig/regz.
+### Prerequisites
 
-The expander includes validation checks (no remaining register/field `derivedFrom`, expected MAX78000 sentinel registers/fields still present, peripheral-level `derivedFrom` count preserved) and fails the build if invariants are violated.
+- Zig `0.15.2` or later — [download](https://ziglang.org/download/)
 
-This is required because current `regz` support handles peripheral-level `derivedFrom`, but does not fully handle register-level and field-level `derivedFrom`. Without this preprocessing step, generated register APIs can be incomplete (for example, missing derived fields or falling back to plain `u32` registers).
-
-The expanded SVD artifact is generated at build time and is intentionally not checked into the repository.
-
-## Standalone build
+### Build the example firmware
 
 ```sh
+git clone <repo-url>
+cd max78000-zig
 zig build
 ```
 
-This produces:
+Produces:
 
-- `zig-out/firmware/empty.elf`
+```
+zig-out/firmware/empty.elf
+```
 
-## Using it from another MicroZig project
+---
 
-Add both `microzig` and `max78000_zig` to `build.zig.zon`, then:
+## Using as a dependency
+
+### 1. Add to `build.zig.zon`
+
+```zig
+.dependencies = .{
+    .microzig = .{
+        .url = "https://github.com/ZigEmbeddedGroup/microzig/releases/download/0.15.1/microzig.tar.gz",
+        .hash = "microzig-0.15.1-D20YSQYfCACrGl4NnHj6WXgGJUJvoEvLOJKBzeBzt-qX",
+    },
+    .max78000_zig = .{
+        .url = "<package-url>",
+        .hash = "<package-hash>",
+    },
+},
+```
+
+### 2. Wire up `build.zig`
 
 ```zig
 const std = @import("std");
@@ -61,7 +109,7 @@ pub fn build(b: *std.Build) void {
 
     const fw = mb.add_firmware(.{
         .name = "app",
-        // Either chip-level target:
+        // chip-level target:
         // .target = targets.chips.max78000,
         // or a board-level target:
         .target = targets.boards.max78000evkit,
@@ -73,22 +121,104 @@ pub fn build(b: *std.Build) void {
 }
 ```
 
-## Template usage for custom chip packages
+---
 
-If you want to use this repository structure as a template for another MCU family,
-see `docs/TEMPLATE.md`.
+## Package API
 
-It documents the expected package API (`init(dep)` + `chips`/`boards` targets),
-required file layout, and packaging/distribution checklist.
+The package exposes a single entry point:
 
-## HAL development notes
+```zig
+pub fn init(dep: *std.Build.Dependency) Self
+```
 
-For MAX78000 HAL work, see:
+`Self` provides two namespaces:
 
-- `hal-bringup.md` — practical bring-up order, scaffolding, and verification plan
-- `hal-design.md` — architecture options, tradeoffs, and recommended HAL shape
+```
+targets.chips.max78000          — bare chip, no board pin mapping
+targets.boards.max78000evkit    — chip + EVKIT board definition
+targets.boards.max78000fthr     — chip + Feather board definition
+```
 
-## Sources used for the memory map
+Each field is a `*const microzig.Target` ready to pass to `mb.add_firmware(...)`.
 
-- bundled MAX78000 SVD for core/peripheral identification
-- Zephyr ADI MAX32 DTS data for flash base and SRAM bank layout
+---
+
+## HAL modules
+
+Early-stage HAL. Available modules are re-exported from `src/hal.zig`:
+
+| Module | File | Status |
+|---|---|---|
+| `hal.gpio` | `src/hal/gpio.zig` | 🟡 Scaffolded |
+| `hal.gcr` | `src/hal/gcr.zig` | 🟡 Scaffolded |
+| `hal.uart` | `src/hal/uart.zig` | 🟡 Scaffolded |
+| `hal.pins` | `src/hal/pins.zig` | 🟡 Scaffolded |
+
+See [HAL development notes](#hal-development-notes) for the bring-up roadmap.
+
+---
+
+## SVD preprocessing
+
+The raw vendor SVD (`svd/max78000.svd`) is not fed directly to `regz`. Instead, the build runs `tools/expand_max78000_svd.zig` at compile time to produce an expanded SVD in the build cache.
+
+**Why this is necessary:** `regz` handles peripheral-level `derivedFrom` but does not fully resolve register-level and field-level `derivedFrom`. Without expansion, generated register APIs are incomplete — for example, missing derived fields or falling back to plain `u32` registers.
+
+**The expander validates:**
+
+- No remaining register/field `derivedFrom` references after expansion
+- Expected MAX78000 sentinel registers/fields are still present
+- Peripheral-level `derivedFrom` count is preserved
+
+If any invariant is violated, the build fails loudly. The expanded SVD artifact lives in the build cache and is intentionally not checked in.
+
+---
+
+## Repository layout
+
+```
+max78000-zig/
+├── build.zig             # Package entry point and standalone build
+├── build.zig.zon         # Package manifest (v0.1.0, Zig ≥ 0.15.2)
+├── svd/
+│   └── max78000.svd      # Raw vendor SVD (unmodified)
+├── tools/
+│   └── expand_max78000_svd.zig   # Build-time SVD expander
+├── src/
+│   ├── hal.zig           # HAL root — re-exports all modules
+│   ├── hal/
+│   │   ├── gpio.zig
+│   │   ├── gcr.zig
+│   │   ├── uart.zig
+│   │   └── pins.zig
+│   └── boards/
+│       ├── max78000evkit.zig
+│       └── max78000fthr.zig
+├── examples/
+│   └── empty.zig         # Minimal firmware; also validates regz expansion
+├── docs/
+│   └── TEMPLATE.md       # Guide for reusing this layout for other MCUs
+├── hal-bringup.md        # Practical HAL bring-up order and verification plan
+└── hal-design.md         # Architecture options and recommended HAL shape
+```
+
+---
+
+## Template usage
+
+This repository is structured as a reusable template for out-of-tree MicroZig chip-support packages.
+
+See [`docs/TEMPLATE.md`](docs/TEMPLATE.md) for:
+
+- Required package API (`init(dep)` + `chips`/`boards` targets)
+- Recommended file layout
+- `build.zig` and `build.zig.zon` checklists
+- Distribution checklist
+
+---
+
+## Memory map sources
+
+- Bundled `svd/max78000.svd` — core and peripheral identification
+- Zephyr ADI MAX32 DTS data — flash base address and SRAM bank layout
+- [MAX78000 product page](https://www.analog.com/en/products/max78000.html)
