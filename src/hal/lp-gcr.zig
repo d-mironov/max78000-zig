@@ -1,2 +1,2 @@
 const microzig = @import("microzig");
-const regs = microzig.chip.peripherals.LPGCR;
+pub const regs = microzig.chip.peripherals.LPGCR;
